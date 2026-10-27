@@ -2,7 +2,7 @@
 import { useState, useEffect } from "react";
 import Swal from "sweetalert2";
 import { supabase } from "@/lib/supabase";
-export const dynamic = 'force-dynamic';
+
 export default function Home() {
   // ================= STATE LOGIN =================
   const [username, setUsername] = useState("");
@@ -16,7 +16,8 @@ export default function Home() {
   const [activeView, setActiveView] = useState("form");
 
   // ================= STATE FORM UTAMA =================
-  const [tanggal, setTanggal] = useState(() => new Date().toISOString().split("T")[0]);
+  // PERBAIKAN: Set tanggal jadi string kosong agar aman saat proses build di Vercel
+  const [tanggal, setTanggal] = useState(""); 
   const [daftarPegawai, setDaftarPegawai] = useState<string[]>([]);
   const [pegawaiTerpilih, setPegawaiTerpilih] = useState<string[]>([]);
   const [showDropdown, setShowDropdown] = useState(false);
@@ -29,6 +30,11 @@ export default function Home() {
   const [reportType, setReportType] = useState(""); // "REKAP" atau "DETAIL"
   const [reportPeriod, setReportPeriod] = useState("");
   const [reportData, setReportData] = useState<any[]>([]);
+
+  // PERBAIKAN: Set tanggal saat aplikasi baru dimuat di browser pengguna
+  useEffect(() => {
+    setTanggal(new Date().toISOString().split("T")[0]);
+  }, []);
 
   useEffect(() => {
     if (isLoggedIn) ambilDataPegawai();
@@ -139,11 +145,9 @@ export default function Home() {
         document.querySelectorAll('.swal-nom').forEach(input => {
           input.addEventListener('keyup', (e) => {
             let target = e.target as HTMLInputElement;
-            // PERBAIKAN: Pakai [^0-9] agar angka tidak terhapus
             let val = target.value.replace(/[^0-9]/g, '');
             target.value = val ? parseInt(val).toLocaleString('id-ID') : '';
             
-            // Hitung total
             let total = 0;
             document.querySelectorAll('.swal-nom').forEach(inp => {
               total += Number((inp as HTMLInputElement).value.replace(/[^0-9]/g, ''));
@@ -165,7 +169,6 @@ export default function Home() {
             Swal.showValidationMessage(`Nominal untuk ${pegawaiTerpilih[i]} belum diisi!`);
             return false;
           }
-          // PERBAIKAN: Pakai [^0-9]
           payloads.push({
             tanggal, nama: pegawaiTerpilih[i], tipe, nominal: Number(nom.replace(/[^0-9]/g, "")),
             sumber_dana: sumberDana, keterangan: ket, input_by: userAktif
@@ -366,7 +369,6 @@ export default function Home() {
       </>
     );
   };
-
 
   // ================= RENDER UTAMA BERDASARKAN VIEW =================
   if (!isLoggedIn) {
