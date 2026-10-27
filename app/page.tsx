@@ -2,7 +2,7 @@
 import { useState, useEffect } from "react";
 import Swal from "sweetalert2";
 import { supabase } from "@/lib/supabase";
-
+export const dynamic = 'force-dynamic';
 export default function Home() {
   // ================= STATE LOGIN =================
   const [username, setUsername] = useState("");
