@@ -12,11 +12,9 @@ export default function Home() {
   const [userAktif, setUserAktif] = useState("");
 
   // ================= STATE NAVIGASI VIEW =================
-  // Mengatur layar mana yang tampil: "form", "reportMenu", atau "reportResult"
   const [activeView, setActiveView] = useState("form");
 
   // ================= STATE FORM UTAMA =================
-  // PERBAIKAN: Set tanggal jadi string kosong agar aman saat proses build di Vercel
   const [tanggal, setTanggal] = useState(""); 
   const [daftarPegawai, setDaftarPegawai] = useState<string[]>([]);
   const [pegawaiTerpilih, setPegawaiTerpilih] = useState<string[]>([]);
@@ -27,11 +25,10 @@ export default function Home() {
   const [keterangan, setKeterangan] = useState("");
 
   // ================= STATE REPORT =================
-  const [reportType, setReportType] = useState(""); // "REKAP" atau "DETAIL"
+  const [reportType, setReportType] = useState(""); 
   const [reportPeriod, setReportPeriod] = useState("");
   const [reportData, setReportData] = useState<any[]>([]);
 
-  // PERBAIKAN: Set tanggal saat aplikasi baru dimuat di browser pengguna
   useEffect(() => {
     setTanggal(new Date().toISOString().split("T")[0]);
   }, []);
@@ -417,22 +414,23 @@ export default function Home() {
                 </div>
               </div>
             </div>
-            <div className="form-row" style={{ alignItems: "flex-start", marginBottom: "28px" }}>
+
+            {/* --- BARIS 1: Tipe Transaksi & Nominal --- */}
+            <div className="form-row" style={{ alignItems: "center", marginBottom: "15px" }}>
               <div className="form-group" style={{ alignItems: "center", marginRight: "25px" }}>
                 <label style={{ width: "140px", flex: "0 0 140px" }}>Tipe Transaksi</label>
                 <select className="form-control" style={{ height: "42px" }} value={tipe} onChange={(e) => setTipe(e.target.value)} required>
                   <option value="" disabled>-- Pilih Transaksi --</option><option value="Kasbon">Kasbon</option><option value="Uang Makan">Uang Makan</option><option value="Upah">Pengambilan Gaji / Upah</option>
                 </select>
               </div>
-              <div className="form-group" style={{ alignItems: "flex-start", marginRight: "0" }}>
-                <label style={{ width: "80px", flex: "0 0 80px", height: "42px", display: "flex", alignItems: "center" }}>Nominal</label>
-                <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
-                  <input type="text" className="form-control" placeholder="0" style={{ height: "42px", width: "100%" }} value={nominal} onChange={(e) => handleFormatRupiah(e.target.value)} required />
-                  <button type="button" className="btn-multi" style={{ marginTop: "8px", height: "34px" }} onClick={bukaMultiNominal}>+ Multi Nominal</button>
-                </div>
+              <div className="form-group" style={{ alignItems: "center", marginRight: "0" }}>
+                <label style={{ width: "80px", flex: "0 0 80px" }}>Nominal</label>
+                <input type="text" className="form-control" placeholder="0" style={{ height: "42px", width: "100%" }} value={nominal} onChange={(e) => handleFormatRupiah(e.target.value)} required />
               </div>
             </div>
-            <div className="form-row">
+
+            {/* --- BARIS 2: Sumber Dana --- */}
+            <div className="form-row" style={{ marginBottom: "15px" }}>
               <div className="form-group">
                 <label style={{ width: "140px", flex: "0 0 140px" }}>Sumber Dana</label>
                 <select className="form-control" style={{ height: "42px" }} value={sumberDana} onChange={(e) => setSumberDana(e.target.value)} required>
@@ -440,6 +438,22 @@ export default function Home() {
                 </select>
               </div>
             </div>
+
+            {/* --- BARIS 3: Tombol Multi Nominal di Kanan --- */}
+            <div className="form-row" style={{ alignItems: "center", marginBottom: "15px" }}>
+              {/* Spacer kiri transparan agar tombol di kanan sejajar rata dengan kolom Nominal */}
+              <div className="form-group" style={{ marginRight: "25px", visibility: "hidden" }}>
+                <label style={{ width: "140px", flex: "0 0 140px" }}></label>
+                <div className="form-control" style={{ width: "100%" }}></div>
+              </div>
+              <div className="form-group" style={{ alignItems: "center", marginRight: "0" }}>
+                <label style={{ width: "80px", flex: "0 0 80px" }}></label>
+                <button type="button" className="btn-multi" style={{ height: "38px", width: "100%", margin: 0 }} onClick={bukaMultiNominal}>
+                  + Multi Nominal
+                </button>
+              </div>
+            </div>
+
             <div className="form-row" style={{ alignItems: "flex-start", marginTop: "10px" }}>
               <label style={{ width: "140px", flex: "0 0 140px", fontWeight: 600, color: "#333", marginTop: "10px" }}>Keterangan</label>
               <div className="keterangan-wrapper">
@@ -477,7 +491,6 @@ export default function Home() {
           </div>
           <div className="form-header"><h2>{reportType === "REKAP" ? "Rekap Transaksi" : "Rekap Detail Transaksi"}</h2></div>
           
-          {/* Konten Tabel Otomatis Berdasarkan Tipe Report */}
           {reportType === "REKAP" ? renderTabelRekap() : renderTabelDetail()}
           
         </div>
