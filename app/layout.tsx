@@ -16,7 +16,7 @@ export const metadata: Metadata = {
   titexport const metadata = {
   title: "TB Putra Tunggal - Jurnal Keuangan",
   description: "Sistem Integrasi Jurnal Kasbon & Gaji via API Accurate",
-};
+}
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
