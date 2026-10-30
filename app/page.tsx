@@ -119,7 +119,10 @@ export default function Home() {
   };
 
   // ================= FUNGSI KIRIM KE ACCURATE =================
-  const kirimKeAccurate = async (items: { nominal: number; keterangan: string }[], ketUtama?: string) => {
+  const kirimKeAccurate = async (
+    items: { nominal: number; keterangan?: string }[],
+    keteranganUtama: string
+  ) => {
     const response = await fetch("/api/accurate/payment", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -127,7 +130,7 @@ export default function Home() {
         tanggal,
         tipe,
         sumberDana,
-        keteranganUtama: ketUtama || keterangan,
+        keteranganUtama,
         items,
       }),
     });
@@ -171,7 +174,6 @@ export default function Home() {
       const updated = prev.includes(nama)
         ? prev.filter((p) => p !== nama)
         : [...prev, nama];
-      // Jika memilih lebih dari 1 pegawai, kosongkan & kunci kotak Nominal biasa
       if (updated.length > 1) {
         setNominal("");
       }
@@ -196,6 +198,7 @@ export default function Home() {
     });
   };
 
+  // ---------------- INPUT BIASA (1 PEGAWAI) ----------------
   const postData = async () => {
     if (isMultiPegawai) {
       return Swal.fire({
@@ -218,15 +221,15 @@ export default function Home() {
 
     const nomAngka = Number(nominal.replace(/[^0-9]/g, ""));
     const namaPegawai = pegawaiTerpilih[0];
-    const teksKeterangan = keterangan || `Pengambilan ${tipe.toLowerCase()} a.n ${namaPegawai}`;
+    const teksKeterangan = keterangan.trim() || `Pengambilan ${tipe.toLowerCase()} a.n ${namaPegawai}`;
 
     try {
-      // 1. Kirim ke Accurate Online terlebih dahulu
-      const noBukti = await kirimKeAccurate([
-        { nominal: nomAngka, keterangan: teksKeterangan },
-      ]);
+      // 1 Pegawai: keterangan HANYA dikirim ke Catatan Utama (header), catatan rincian baris dikosongkan ("")
+      const noBukti = await kirimKeAccurate(
+        [{ nominal: nomAngka, keterangan: "" }],
+        teksKeterangan
+      );
 
-      // 2. Jika Accurate sukses, simpan ke Supabase
       const payload = [
         {
           tanggal,
@@ -353,14 +356,18 @@ export default function Home() {
         });
 
         try {
-          // 1. Kirim gabungan rincian ke 1 bukti Pembayaran di Accurate Online
+          // 1. Catatan per baris rincian akun (Info lainnya > Catatan di tiap baris akun perkiraan)
           const accurateItems = result.value.map((row: { nominal: number; keterangan: string }) => ({
             nominal: row.nominal,
             keterangan: row.keterangan,
           }));
-          const noBukti = await kirimKeAccurate(accurateItems);
 
-          // 2. Jika Accurate sukses, simpan seluruh baris ke Supabase
+          // 2. Catatan utama halaman Pembayaran (kalimat kembar 1x di depan + deretan nama pegawai)
+          const keteranganHeaderGabungan = `Pengambilan ${tipe.toLowerCase()} a.n ${pegawaiTerpilih.join(", ")}`;
+
+          const noBukti = await kirimKeAccurate(accurateItems, keteranganHeaderGabungan);
+
+          // 3. Simpan ke tabel transaksi Supabase
           const { error } = await supabase.from("transaksi").insert(result.value);
           if (error) {
             Swal.fire("Tersimpan di Accurate, Gagal di Rekap Web", error.message, "warning");
@@ -687,7 +694,7 @@ export default function Home() {
               <div className="keterangan-wrapper">
                 <textarea
                   className="form-control"
-                  placeholder={isMultiPegawai ? "Keterangan diatur per pegawai di dalam + Multi Nominal..." : "Isi keterangan atau klik tombol Generate..."}
+                  placeholder={isMultiPegawai ? "Catatan utama & per baris otomatis terisi saat POST DATA di + Multi Nominal..." : "Isi keterangan atau klik tombol Generate..."}
                   disabled={isMultiPegawai}
                   style={{
                     backgroundColor: isMultiPegawai ? "#e9ecef" : "#fff",

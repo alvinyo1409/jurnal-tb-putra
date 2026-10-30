@@ -3,14 +3,14 @@ import { supabase } from '../../../../lib/supabase'
 
 interface PaymentItem {
   nominal: number
-  keterangan: string
+  keterangan?: string
 }
 
 interface PaymentRequestBody {
   tanggal: string
   tipe: string
   sumberDana: string
-  keteranganUtama?: string // Keterangan global untuk header catatan Accurate
+  keteranganUtama?: string
   items: PaymentItem[]
 }
 
@@ -155,7 +155,6 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // 1. Ambil token dari Supabase
     const { data: tokenRow, error: tokenErr } = await supabase
       .from('accurate_tokens')
       .select('*')
@@ -173,7 +172,6 @@ export async function POST(request: NextRequest) {
     let host: string | null = tokenRow.host
     let session: string | null = tokenRow.session
 
-    // 2. Perbarui token otomatis jika sisa waktu kurang dari 5 menit
     const batasWaktu = tokenRow.expires_at ? new Date(tokenRow.expires_at).getTime() : 0
     if (batasWaktu - Date.now() < 5 * 60 * 1000 && tokenRow.refresh_token) {
       const refreshed = await perbaruiAccessToken(tokenRow.refresh_token)
@@ -193,14 +191,12 @@ export async function POST(request: NextRequest) {
         .eq('id', 1)
     }
 
-    // 3. Buka database otomatis jika host/session belum tersimpan
     if (!host || !session) {
       const dbInfo = await bukaDatabaseAccurate(accessToken, tokenRow.db_id)
       host = dbInfo.host
       session = dbInfo.session
     }
 
-    // 4. Ambil daftar COA
     let coaResult = await ambilSemuaAkunCOA(host, accessToken, session)
     if (!coaResult.ok) {
       const dbInfo = await bukaDatabaseAccurate(accessToken, tokenRow.db_id)
@@ -216,7 +212,6 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // 5. Cari Kode Akun untuk Kas/Bank dan Akun Perkiraan
     const akunBank = coaResult.accounts.find(
       (acc) => normalisasiNama(acc.name) === normalisasiNama(sumberDana)
     )
@@ -237,20 +232,22 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // 6. Susun payload ke modul Kas & Bank > Pembayaran (other-payment/save.do)
     const formParams = new URLSearchParams()
     formParams.append('bankNo', akunBank.no)
     formParams.append('transDate', formatTanggalAccurate(tanggal))
-    
-    // Masukkan keterangan website ke kotak 'Catatan' di Info Lainnya (Header Accurate)
-    if (keteranganUtama) {
-      formParams.append('description', keteranganUtama)
+
+    // Catatan Utama di halaman Pembayaran > Info lainnya > Catatan
+    if (keteranganUtama && keteranganUtama.trim() !== '') {
+      formParams.append('description', keteranganUtama.trim())
     }
 
+    // Rincian baris akun perkiraan (detailNotes hanya diisi jika dikirim, yakni saat Multi Nominal)
     items.forEach((item, idx) => {
       formParams.append(`detailAccount[${idx}].accountNo`, akunPerkiraan.no)
       formParams.append(`detailAccount[${idx}].amount`, String(item.nominal))
-      // Kosongkan atau abaikan detailNotes baris agar bersih
+      if (item.keterangan && item.keterangan.trim() !== '') {
+        formParams.append(`detailAccount[${idx}].detailNotes`, item.keterangan.trim())
+      }
     })
 
     const saveRes = await fetch(`${host}/accurate/api/other-payment/save.do`, {
