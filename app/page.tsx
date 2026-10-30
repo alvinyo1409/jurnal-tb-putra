@@ -191,14 +191,30 @@ export default function Home() {
   const tambahPegawaiBaru = () => {
     setShowDropdown(false);
     Swal.fire({
-      title: 'Tambah Pegawai', input: 'text', showCancelButton: true, confirmButtonText: 'Tambah', confirmButtonColor: '#ffcc00',
-      preConfirm: (val) => !val && Swal.showValidationMessage('Nama tidak boleh kosong!')
+      title: 'Tambah Pegawai',
+      input: 'text',
+      inputPlaceholder: 'Masukkan nama pegawai baru...',
+      showCancelButton: true,
+      confirmButtonText: 'Tambah',
+      cancelButtonText: 'Batal',
+      confirmButtonColor: '#ffcc00',
+      preConfirm: (val) => {
+        if (!val || val.trim() === '') {
+          Swal.showValidationMessage('Nama pegawai tidak boleh kosong!');
+          return false;
+        }
+        return val.trim();
+      }
     }).then(async (res) => {
-      if (res.isConfirmed) {
-        Swal.fire({ title: 'Menyimpan...', didOpen: () => Swal.showLoading() });
-        await supabase.from('pegawai').insert({ nama: res.value.trim() });
-        Swal.fire({ icon: 'success', title: 'Berhasil!', timer: 1500 });
-        ambilDataPegawai();
+      if (res.isConfirmed && res.value) {
+        Swal.fire({ title: 'Menyimpan...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+        const { error } = await supabase.from('pegawai').insert({ nama: res.value });
+        if (error) {
+          Swal.fire('Gagal', error.message, 'error');
+        } else {
+          Swal.fire({ icon: 'success', title: 'Berhasil!', text: 'Pegawai baru ditambahkan.', timer: 1500, showConfirmButton: false });
+          ambilDataPegawai();
+        }
       }
     });
   };
