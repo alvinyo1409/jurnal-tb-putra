@@ -224,12 +224,13 @@ export default function Home() {
     const teksKeterangan = keterangan.trim() || `Pengambilan ${tipe.toLowerCase()} a.n ${namaPegawai}`;
 
     try {
-      // 1 Pegawai: keterangan HANYA dikirim ke Catatan Utama (header), catatan rincian baris dikosongkan ("")
+      // 1. Kirim ke Accurate Online dan tangkap nomor buktinya
       const noBukti = await kirimKeAccurate(
         [{ nominal: nomAngka, keterangan: "" }],
         teksKeterangan
       );
 
+      // 2. Simpan ke Supabase beserta kolom no_bukti
       const payload = [
         {
           tanggal,
@@ -239,6 +240,7 @@ export default function Home() {
           sumber_dana: sumberDana,
           keterangan: teksKeterangan,
           input_by: userAktif,
+          no_bukti: noBukti || null,
         },
       ];
 
@@ -356,19 +358,23 @@ export default function Home() {
         });
 
         try {
-          // 1. Catatan per baris rincian akun (Info lainnya > Catatan di tiap baris akun perkiraan)
           const accurateItems = result.value.map((row: { nominal: number; keterangan: string }) => ({
             nominal: row.nominal,
             keterangan: row.keterangan,
           }));
 
-          // 2. Catatan utama halaman Pembayaran (kalimat kembar 1x di depan + deretan nama pegawai)
           const keteranganHeaderGabungan = `Pengambilan ${tipe.toLowerCase()} a.n ${pegawaiTerpilih.join(", ")}`;
 
+          // 1. Kirim ke Accurate dan tangkap nomor buktinya
           const noBukti = await kirimKeAccurate(accurateItems, keteranganHeaderGabungan);
 
-          // 3. Simpan ke tabel transaksi Supabase
-          const { error } = await supabase.from("transaksi").insert(result.value);
+          // 2. Masukkan nomor bukti yang sama ke setiap baris data yang disimpan ke Supabase
+          const payloadFinal = result.value.map((row: any) => ({
+            ...row,
+            no_bukti: noBukti || null,
+          }));
+
+          const { error } = await supabase.from("transaksi").insert(payloadFinal);
           if (error) {
             Swal.fire("Tersimpan di Accurate, Gagal di Rekap Web", error.message, "warning");
           } else {
