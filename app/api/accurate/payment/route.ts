@@ -10,6 +10,7 @@ interface PaymentRequestBody {
   tanggal: string
   tipe: string
   sumberDana: string
+  keteranganUtama?: string // Keterangan global untuk header catatan Accurate
   items: PaymentItem[]
 }
 
@@ -137,7 +138,7 @@ async function ambilSemuaAkunCOA(
 export async function POST(request: NextRequest) {
   try {
     const body = (await request.json()) as PaymentRequestBody
-    const { tanggal, tipe, sumberDana, items } = body
+    const { tanggal, tipe, sumberDana, keteranganUtama, items } = body
 
     if (!tanggal || !tipe || !sumberDana || !Array.isArray(items) || items.length === 0) {
       return NextResponse.json(
@@ -199,7 +200,7 @@ export async function POST(request: NextRequest) {
       session = dbInfo.session
     }
 
-    // 4. Ambil daftar COA (jika sesi Accurate kedaluwarsa, buka ulang sesi 1x otomatis)
+    // 4. Ambil daftar COA
     let coaResult = await ambilSemuaAkunCOA(host, accessToken, session)
     if (!coaResult.ok) {
       const dbInfo = await bukaDatabaseAccurate(accessToken, tokenRow.db_id)
@@ -215,7 +216,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // 5. Cari Kode Akun untuk Kas/Bank (Sumber Dana) dan Akun Perkiraan (Tipe Transaksi)
+    // 5. Cari Kode Akun untuk Kas/Bank dan Akun Perkiraan
     const akunBank = coaResult.accounts.find(
       (acc) => normalisasiNama(acc.name) === normalisasiNama(sumberDana)
     )
@@ -240,11 +241,16 @@ export async function POST(request: NextRequest) {
     const formParams = new URLSearchParams()
     formParams.append('bankNo', akunBank.no)
     formParams.append('transDate', formatTanggalAccurate(tanggal))
+    
+    // Masukkan keterangan website ke kotak 'Catatan' di Info Lainnya (Header Accurate)
+    if (keteranganUtama) {
+      formParams.append('description', keteranganUtama)
+    }
 
     items.forEach((item, idx) => {
       formParams.append(`detailAccount[${idx}].accountNo`, akunPerkiraan.no)
       formParams.append(`detailAccount[${idx}].amount`, String(item.nominal))
-      formParams.append(`detailAccount[${idx}].detailNotes`, item.keterangan)
+      // Kosongkan atau abaikan detailNotes baris agar bersih
     })
 
     const saveRes = await fetch(`${host}/accurate/api/other-payment/save.do`, {

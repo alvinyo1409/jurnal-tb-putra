@@ -119,7 +119,7 @@ export default function Home() {
   };
 
   // ================= FUNGSI KIRIM KE ACCURATE =================
-  const kirimKeAccurate = async (items: { nominal: number; keterangan: string }[]) => {
+  const kirimKeAccurate = async (items: { nominal: number; keterangan: string }[], ketUtama?: string) => {
     const response = await fetch("/api/accurate/payment", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -127,6 +127,7 @@ export default function Home() {
         tanggal,
         tipe,
         sumberDana,
+        keteranganUtama: ketUtama || keterangan,
         items,
       }),
     });
