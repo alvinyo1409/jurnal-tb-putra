@@ -47,17 +47,44 @@ export async function GET(request: NextRequest) {
       )
     }
 
+    const accessToken: string = tokenData.access_token
     const expiresAt = new Date(
       Date.now() + (tokenData.expires_in || 3600) * 1000
     ).toISOString()
+
+    // Otomatis ambil dan buka satu-satunya database (TB Putra Tunggal)
+    let dbId: string | null = null
+    let host: string | null = null
+    let session: string | null = null
+
+    const dbListRes = await fetch('https://account.accurate.id/api/db-list.do', {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    })
+    const dbListJson = await dbListRes.json()
+
+    if (dbListRes.ok && dbListJson.s && Array.isArray(dbListJson.d) && dbListJson.d.length > 0) {
+      dbId = String(dbListJson.d[0].id)
+      const openDbRes = await fetch(
+        `https://account.accurate.id/api/open-db.do?id=${encodeURIComponent(dbId)}`,
+        { headers: { Authorization: `Bearer ${accessToken}` } }
+      )
+      const openDbJson = await openDbRes.json()
+      if (openDbRes.ok && openDbJson.s) {
+        host = openDbJson.host
+        session = openDbJson.session
+      }
+    }
 
     const { error: dbError } = await supabase
       .from('accurate_tokens')
       .upsert({
         id: 1,
-        access_token: tokenData.access_token,
+        access_token: accessToken,
         refresh_token: tokenData.refresh_token,
         expires_at: expiresAt,
+        db_id: dbId,
+        host,
+        session,
         updated_at: new Date().toISOString(),
       })
 
@@ -68,7 +95,6 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    // Jika sukses, kembalikan ke halaman utama aplikasi dengan penanda berhasil
     return NextResponse.redirect(new URL('/?accurate=connected', request.url))
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Unknown error'

@@ -32,6 +32,8 @@ export default function Home() {
   const [reportPeriod, setReportPeriod] = useState("");
   const [reportData, setReportData] = useState<any[]>([]);
 
+  const isMultiPegawai = pegawaiTerpilih.length > 1;
+
   useEffect(() => {
     setTanggal(new Date().toISOString().split("T")[0]);
 
@@ -47,7 +49,7 @@ export default function Home() {
       Swal.fire({
         icon: "success",
         title: "Accurate Terhubung!",
-        text: "Token otorisasi Accurate Online berhasil disimpan.",
+        text: "Koneksi & izin modul Pembayaran Accurate Online siap digunakan.",
         confirmButtonColor: "#ffcc00",
       });
       window.history.replaceState({}, "", window.location.pathname);
@@ -92,7 +94,7 @@ export default function Home() {
 
     const mulaiOtorisasi = () => {
       sessionStorage.setItem("tb_putra_user", userAktif);
-      const scope = "journal_voucher_save journal_voucher_view glaccount_view";
+      const scope = "other_payment_save other_payment_view glaccount_view";
       const authUrl = `https://account.accurate.id/oauth/authorize?client_id=${clientId}&response_type=code&redirect_uri=${encodeURIComponent(
         redirectUri
       )}&scope=${encodeURIComponent(scope)}`;
@@ -102,7 +104,7 @@ export default function Home() {
     if (accurateConnected) {
       Swal.fire({
         title: "Accurate Sudah Terhubung",
-        text: "Ingin memperbarui atau menghubungkan ulang akun Accurate?",
+        text: "Ingin memperbarui izin scope atau menghubungkan ulang akun Accurate?",
         icon: "question",
         showCancelButton: true,
         confirmButtonText: "Hubungkan Ulang",
@@ -114,6 +116,26 @@ export default function Home() {
     } else {
       mulaiOtorisasi();
     }
+  };
+
+  // ================= FUNGSI KIRIM KE ACCURATE =================
+  const kirimKeAccurate = async (items: { nominal: number; keterangan: string }[]) => {
+    const response = await fetch("/api/accurate/payment", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        tanggal,
+        tipe,
+        sumberDana,
+        items,
+      }),
+    });
+
+    const resJson = await response.json();
+    if (!response.ok) {
+      throw new Error(resJson.error || "Gagal mengirim jurnal ke Accurate Online.");
+    }
+    return resJson.number as string | null;
   };
 
   // ================= FUNGSI LOGIN & FORM =================
@@ -144,7 +166,16 @@ export default function Home() {
   };
 
   const togglePegawai = (nama: string) => {
-    setPegawaiTerpilih(prev => prev.includes(nama) ? prev.filter(p => p !== nama) : [...prev, nama]);
+    setPegawaiTerpilih((prev) => {
+      const updated = prev.includes(nama)
+        ? prev.filter((p) => p !== nama)
+        : [...prev, nama];
+      // Jika memilih lebih dari 1 pegawai, kosongkan & kunci kotak Nominal biasa
+      if (updated.length > 1) {
+        setNominal("");
+      }
+      return updated;
+    });
   };
 
   const resetForm = () => { setPegawaiTerpilih([]); setTipe(""); setNominal(""); setSumberDana(""); setKeterangan(""); };
@@ -165,20 +196,74 @@ export default function Home() {
   };
 
   const postData = async () => {
-    if (!tanggal || pegawaiTerpilih.length === 0 || !tipe || !nominal || !sumberDana) return Swal.fire({ icon: "warning", title: "Data Belum Lengkap", text: "Mohon isi semua kolom!" });
-    Swal.fire({ title: "Menyimpan...", didOpen: () => Swal.showLoading() });
+    if (isMultiPegawai) {
+      return Swal.fire({
+        icon: "info",
+        title: "Gunakan + Multi Nominal",
+        text: "Anda memilih lebih dari 1 pegawai. Silakan klik tombol + Multi Nominal untuk mengisi rincian tiap pegawai.",
+        confirmButtonColor: "#ffcc00",
+      });
+    }
+
+    if (!tanggal || pegawaiTerpilih.length === 0 || !tipe || !nominal || !sumberDana) {
+      return Swal.fire({ icon: "warning", title: "Data Belum Lengkap", text: "Mohon isi semua kolom!" });
+    }
+
+    Swal.fire({
+      title: "Memproses ke Accurate & Database...",
+      allowOutsideClick: false,
+      didOpen: () => Swal.showLoading(),
+    });
+
     const nomAngka = Number(nominal.replace(/[^0-9]/g, ""));
-    const payload = pegawaiTerpilih.map((nama) => ({
-      tanggal, nama, tipe, nominal: nomAngka, sumber_dana: sumberDana, keterangan: keterangan || `Pengambilan ${tipe.toLowerCase()} a.n ${nama}`, input_by: userAktif
-    }));
-    const { error } = await supabase.from("transaksi").insert(payload);
-    if (error) Swal.fire("Gagal", error.message, "error");
-    else { Swal.fire("Berhasil", "Data tersimpan.", "success"); resetForm(); }
+    const namaPegawai = pegawaiTerpilih[0];
+    const teksKeterangan = keterangan || `Pengambilan ${tipe.toLowerCase()} a.n ${namaPegawai}`;
+
+    try {
+      // 1. Kirim ke Accurate Online terlebih dahulu
+      const noBukti = await kirimKeAccurate([
+        { nominal: nomAngka, keterangan: teksKeterangan },
+      ]);
+
+      // 2. Jika Accurate sukses, simpan ke Supabase
+      const payload = [
+        {
+          tanggal,
+          nama: namaPegawai,
+          tipe,
+          nominal: nomAngka,
+          sumber_dana: sumberDana,
+          keterangan: teksKeterangan,
+          input_by: userAktif,
+        },
+      ];
+
+      const { error } = await supabase.from("transaksi").insert(payload);
+      if (error) {
+        Swal.fire("Tersimpan di Accurate, Gagal di Rekap Web", error.message, "warning");
+      } else {
+        Swal.fire(
+          "Berhasil!",
+          `Transaksi tersimpan di Web & Accurate${noBukti ? ` (No Bukti: ${noBukti})` : ""}.`,
+          "success"
+        );
+        resetForm();
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Terjadi kesalahan koneksi Accurate.";
+      Swal.fire("Gagal Kirim ke Accurate", msg, "error");
+    }
   };
 
   // ---------------- FITUR MULTI NOMINAL ----------------
   const bukaMultiNominal = () => {
-    if (pegawaiTerpilih.length === 0 || !tipe) return Swal.fire('Perhatian', 'Pilih Pegawai dan Tipe Transaksi di form utama dulu!', 'warning');
+    if (!tanggal || pegawaiTerpilih.length === 0 || !tipe || !sumberDana) {
+      return Swal.fire(
+        'Perhatian',
+        'Pilih Tanggal, Pegawai, Tipe Transaksi, dan Sumber Dana di form utama dulu!',
+        'warning'
+      );
+    }
 
     let htmlTable = `
       <div style="max-height: 400px; overflow-y: auto; text-align: left;">
@@ -247,20 +332,48 @@ export default function Home() {
             return false;
           }
           payloads.push({
-            tanggal, nama: pegawaiTerpilih[i], tipe, nominal: Number(nom.replace(/[^0-9]/g, "")),
-            sumber_dana: sumberDana, keterangan: ket, input_by: userAktif
+            tanggal,
+            nama: pegawaiTerpilih[i],
+            tipe,
+            nominal: Number(nom.replace(/[^0-9]/g, "")),
+            sumber_dana: sumberDana,
+            keterangan: ket,
+            input_by: userAktif
           });
         }
         return payloads;
       }
     }).then(async (result) => {
-      if (result.isConfirmed) {
-        Swal.fire({ title: "Menyimpan Multi Data...", allowOutsideClick: false, didOpen: () => Swal.showLoading() });
-        const { error } = await supabase.from("transaksi").insert(result.value);
-        if (error) Swal.fire("Gagal", error.message, "error");
-        else {
-          Swal.fire("Berhasil", "Semua data multi-nominal berhasil di-post!", "success");
-          resetForm();
+      if (result.isConfirmed && Array.isArray(result.value)) {
+        Swal.fire({
+          title: "Memproses Multi Data ke Accurate & Database...",
+          allowOutsideClick: false,
+          didOpen: () => Swal.showLoading(),
+        });
+
+        try {
+          // 1. Kirim gabungan rincian ke 1 bukti Pembayaran di Accurate Online
+          const accurateItems = result.value.map((row: { nominal: number; keterangan: string }) => ({
+            nominal: row.nominal,
+            keterangan: row.keterangan,
+          }));
+          const noBukti = await kirimKeAccurate(accurateItems);
+
+          // 2. Jika Accurate sukses, simpan seluruh baris ke Supabase
+          const { error } = await supabase.from("transaksi").insert(result.value);
+          if (error) {
+            Swal.fire("Tersimpan di Accurate, Gagal di Rekap Web", error.message, "warning");
+          } else {
+            Swal.fire(
+              "Berhasil!",
+              `Semua data multi-nominal tersimpan di Web & Accurate${noBukti ? ` (No Bukti: ${noBukti})` : ""}!`,
+              "success"
+            );
+            resetForm();
+          }
+        } catch (err: unknown) {
+          const msg = err instanceof Error ? err.message : "Terjadi kesalahan koneksi Accurate.";
+          Swal.fire("Gagal Kirim ke Accurate", msg, "error");
         }
       }
     });
@@ -526,7 +639,21 @@ export default function Home() {
               </div>
               <div className="form-group" style={{ alignItems: "center", marginRight: "0" }}>
                 <label style={{ width: "80px", flex: "0 0 80px" }}>Nominal</label>
-                <input type="text" className="form-control" placeholder="0" style={{ height: "42px", width: "100%" }} value={nominal} onChange={(e) => handleFormatRupiah(e.target.value)} required />
+                <input
+                  type="text"
+                  className="form-control"
+                  placeholder={isMultiPegawai ? "Klik + Multi Nominal" : "0"}
+                  disabled={isMultiPegawai}
+                  style={{
+                    height: "42px",
+                    width: "100%",
+                    backgroundColor: isMultiPegawai ? "#e9ecef" : "#fff",
+                    cursor: isMultiPegawai ? "not-allowed" : "text",
+                  }}
+                  value={nominal}
+                  onChange={(e) => handleFormatRupiah(e.target.value)}
+                  required={!isMultiPegawai}
+                />
               </div>
             </div>
 
@@ -557,12 +684,37 @@ export default function Home() {
             <div className="form-row" style={{ alignItems: "flex-start", marginTop: "10px" }}>
               <label style={{ width: "140px", flex: "0 0 140px", fontWeight: 600, color: "#333", marginTop: "10px" }}>Keterangan</label>
               <div className="keterangan-wrapper">
-                <textarea className="form-control" placeholder="Isi keterangan atau klik tombol Generate..." value={keterangan} onChange={(e) => setKeterangan(e.target.value)} />
-                <button type="button" className="btn-generate" style={{ height: "42px" }} onClick={() => setKeterangan(`Pengambilan ${tipe.toLowerCase()} a.n ${pegawaiTerpilih.join(", ")}`)}>Generate</button>
+                <textarea
+                  className="form-control"
+                  placeholder={isMultiPegawai ? "Keterangan diatur per pegawai di dalam + Multi Nominal..." : "Isi keterangan atau klik tombol Generate..."}
+                  disabled={isMultiPegawai}
+                  style={{
+                    backgroundColor: isMultiPegawai ? "#e9ecef" : "#fff",
+                    cursor: isMultiPegawai ? "not-allowed" : "text",
+                  }}
+                  value={isMultiPegawai ? "" : keterangan}
+                  onChange={(e) => setKeterangan(e.target.value)}
+                />
+                <button
+                  type="button"
+                  className="btn-generate"
+                  style={{ height: "42px", opacity: isMultiPegawai ? 0.5 : 1, cursor: isMultiPegawai ? "not-allowed" : "pointer" }}
+                  disabled={isMultiPegawai}
+                  onClick={() => setKeterangan(`Pengambilan ${tipe.toLowerCase()} a.n ${pegawaiTerpilih.join(", ")}`)}
+                >
+                  Generate
+                </button>
               </div>
             </div>
             <div className="action-buttons">
-              <button type="button" className="btn btn-kuning" style={{ width: "140px" }} onClick={postData}>Post</button>
+              <button
+                type="button"
+                className="btn btn-kuning"
+                style={{ width: "140px", opacity: isMultiPegawai ? 0.5 : 1 }}
+                onClick={postData}
+              >
+                Post
+              </button>
               <button type="button" className="btn btn-outline" style={{ width: "140px" }} onClick={resetForm}>Hapus</button>
               <button type="button" className="btn" style={{ width: "140px", backgroundColor: "#1a1a1a", color: "#fff", border: "2px solid #ffcc00" }} onClick={() => setActiveView("reportMenu")}>Report</button>
             </div>
