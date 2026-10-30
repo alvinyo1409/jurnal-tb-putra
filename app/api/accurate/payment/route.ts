@@ -241,12 +241,16 @@ export async function POST(request: NextRequest) {
       formParams.append('description', keteranganUtama.trim())
     }
 
-    // Rincian baris akun perkiraan (detailNotes hanya diisi jika dikirim, yakni saat Multi Nominal)
+    // Rincian baris akun perkiraan (khusus Multi Nominal)
     items.forEach((item, idx) => {
       formParams.append(`detailAccount[${idx}].accountNo`, akunPerkiraan.no)
       formParams.append(`detailAccount[${idx}].amount`, String(item.nominal))
       if (item.keterangan && item.keterangan.trim() !== '') {
-        formParams.append(`detailAccount[${idx}].detailNotes`, item.keterangan.trim())
+        const catatanBaris = item.keterangan.trim()
+        formParams.append(`detailAccount[${idx}].memo`, catatanBaris)
+        formParams.append(`detailAccount[${idx}].detailNotes`, catatanBaris)
+        formParams.append(`detailAccount[${idx}].notes`, catatanBaris)
+        formParams.append(`detailAccount[${idx}].description`, catatanBaris)
       }
     })
 
