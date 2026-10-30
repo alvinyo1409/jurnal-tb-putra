@@ -25,7 +25,12 @@ export default function Home() {
   const [tipe, setTipe] = useState("");
   const [nominal, setNominal] = useState("");
   const [sumberDana, setSumberDana] = useState("");
-  const [keterangan, setKeterangan] = useState("");
+
+  // Keterangan otomatis real-time untuk 1 pegawai
+  const namaPegawaiSingle = pegawaiTerpilih.length === 1 ? pegawaiTerpilih[0] : "";
+  const keteranganOtomatis = namaPegawaiSingle && tipe 
+    ? `Pengambilan ${tipe.toLowerCase()} a.n ${namaPegawaiSingle}` 
+    : "";
 
   // ================= STATE REPORT =================
   const [reportType, setReportType] = useState("");
@@ -181,7 +186,7 @@ export default function Home() {
     });
   };
 
-  const resetForm = () => { setPegawaiTerpilih([]); setTipe(""); setNominal(""); setSumberDana(""); setKeterangan(""); };
+  const resetForm = () => { setPegawaiTerpilih([]); setTipe(""); setNominal(""); setSumberDana(""); };
 
   const tambahPegawaiBaru = () => {
     setShowDropdown(false);
@@ -221,13 +226,13 @@ export default function Home() {
 
     const nomAngka = Number(nominal.replace(/[^0-9]/g, ""));
     const namaPegawai = pegawaiTerpilih[0];
-    const teksKeterangan = keterangan.trim() || `Pengambilan ${tipe.toLowerCase()} a.n ${namaPegawai}`;
+    const finalKeterangan = keteranganOtomatis || `Pengambilan ${tipe.toLowerCase()} a.n ${namaPegawai}`;
 
     try {
       // 1. Kirim ke Accurate Online dan tangkap nomor buktinya
       const noBukti = await kirimKeAccurate(
         [{ nominal: nomAngka, keterangan: "" }],
-        teksKeterangan
+        finalKeterangan
       );
 
       // 2. Simpan ke Supabase beserta kolom no_bukti
@@ -238,7 +243,7 @@ export default function Home() {
           tipe,
           nominal: nomAngka,
           sumber_dana: sumberDana,
-          keterangan: teksKeterangan,
+          keterangan: finalKeterangan,
           input_by: userAktif,
           no_bukti: noBukti || null,
         },
@@ -689,7 +694,7 @@ export default function Home() {
               </div>
               <div className="form-group" style={{ alignItems: "center", marginRight: "0" }}>
                 <label style={{ width: "80px", flex: "0 0 80px" }}></label>
-                <button type="button" className="btn-multi" style={{ height: "38px", width: "100%", margin: 0 }} onClick={bukaMultiNominal}>
+                <button type="button" className="btn-multi" style={{ height: "38px", width: "100%", margin: 0, backgroundColor: "#1a1a1a", color: "#ffcc00", fontWeight: "bold" }} onClick={bukaMultiNominal}>
                   + Multi Nominal
                 </button>
               </div>
@@ -697,27 +702,18 @@ export default function Home() {
 
             <div className="form-row" style={{ alignItems: "flex-start", marginTop: "10px" }}>
               <label style={{ width: "140px", flex: "0 0 140px", fontWeight: 600, color: "#333", marginTop: "10px" }}>Keterangan</label>
-              <div className="keterangan-wrapper">
+              <div className="keterangan-wrapper" style={{ flex: 1 }}>
                 <textarea
                   className="form-control"
-                  placeholder={isMultiPegawai ? "Catatan utama & per baris otomatis terisi saat POST DATA di + Multi Nominal..." : "Isi keterangan atau klik tombol Generate..."}
-                  disabled={isMultiPegawai}
+                  placeholder={isMultiPegawai ? "Multi keterangan otomatis terisi saat POST DATA di + Multi Nominal..." : "Keterangan terisi otomatis..."}
+                  disabled={true}
                   style={{
-                    backgroundColor: isMultiPegawai ? "#e9ecef" : "#fff",
-                    cursor: isMultiPegawai ? "not-allowed" : "text",
+                    backgroundColor: "#e9ecef",
+                    cursor: "not-allowed",
+                    width: "100%",
                   }}
-                  value={isMultiPegawai ? "" : keterangan}
-                  onChange={(e) => setKeterangan(e.target.value)}
+                  value={isMultiPegawai ? "(Multi keterangan diatur di dalam + Multi Nominal)" : keteranganOtomatis}
                 />
-                <button
-                  type="button"
-                  className="btn-generate"
-                  style={{ height: "42px", opacity: isMultiPegawai ? 0.5 : 1, cursor: isMultiPegawai ? "not-allowed" : "pointer" }}
-                  disabled={isMultiPegawai}
-                  onClick={() => setKeterangan(`Pengambilan ${tipe.toLowerCase()} a.n ${pegawaiTerpilih.join(", ")}`)}
-                >
-                  Generate
-                </button>
               </div>
             </div>
             <div className="action-buttons">
