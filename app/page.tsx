@@ -11,11 +11,14 @@ export default function Home() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [userAktif, setUserAktif] = useState("");
 
+  // ================= STATE ACCURATE =================
+  const [accurateConnected, setAccurateConnected] = useState(false);
+
   // ================= STATE NAVIGASI VIEW =================
   const [activeView, setActiveView] = useState("form");
 
   // ================= STATE FORM UTAMA =================
-  const [tanggal, setTanggal] = useState(""); 
+  const [tanggal, setTanggal] = useState("");
   const [daftarPegawai, setDaftarPegawai] = useState<string[]>([]);
   const [pegawaiTerpilih, setPegawaiTerpilih] = useState<string[]>([]);
   const [showDropdown, setShowDropdown] = useState(false);
@@ -25,21 +28,92 @@ export default function Home() {
   const [keterangan, setKeterangan] = useState("");
 
   // ================= STATE REPORT =================
-  const [reportType, setReportType] = useState(""); 
+  const [reportType, setReportType] = useState("");
   const [reportPeriod, setReportPeriod] = useState("");
   const [reportData, setReportData] = useState<any[]>([]);
 
   useEffect(() => {
     setTanggal(new Date().toISOString().split("T")[0]);
+
+    const savedUser = sessionStorage.getItem("tb_putra_user");
+    if (savedUser) {
+      setUserAktif(savedUser);
+      setIsLoggedIn(true);
+    }
+
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("accurate") === "connected") {
+      setAccurateConnected(true);
+      Swal.fire({
+        icon: "success",
+        title: "Accurate Terhubung!",
+        text: "Token otorisasi Accurate Online berhasil disimpan.",
+        confirmButtonColor: "#ffcc00",
+      });
+      window.history.replaceState({}, "", window.location.pathname);
+    }
   }, []);
 
   useEffect(() => {
-    if (isLoggedIn) ambilDataPegawai();
+    if (isLoggedIn) {
+      ambilDataPegawai();
+      cekStatusAccurate();
+    }
   }, [isLoggedIn]);
 
   const ambilDataPegawai = async () => {
     const { data, error } = await supabase.from("pegawai").select("nama").order("nama");
     if (!error && data) setDaftarPegawai(data.map((p) => p.nama));
+  };
+
+  const cekStatusAccurate = async () => {
+    const { data, error } = await supabase
+      .from("accurate_tokens")
+      .select("id")
+      .eq("id", 1)
+      .maybeSingle();
+    if (!error && data) {
+      setAccurateConnected(true);
+    }
+  };
+
+  const hubungkanAccurate = () => {
+    const clientId = process.env.NEXT_PUBLIC_ACCURATE_CLIENT_ID;
+    const redirectUri = process.env.NEXT_PUBLIC_ACCURATE_REDIRECT_URI;
+
+    if (!clientId || !redirectUri) {
+      Swal.fire(
+        "Konfigurasi Belum Lengkap",
+        "Client ID atau Redirect URI Accurate belum terbaca di server Vercel.",
+        "error"
+      );
+      return;
+    }
+
+    const mulaiOtorisasi = () => {
+      sessionStorage.setItem("tb_putra_user", userAktif);
+      const scope = "journal_voucher_save journal_voucher_view glaccount_view";
+      const authUrl = `https://account.accurate.id/oauth/authorize?client_id=${clientId}&response_type=code&redirect_uri=${encodeURIComponent(
+        redirectUri
+      )}&scope=${encodeURIComponent(scope)}`;
+      window.location.href = authUrl;
+    };
+
+    if (accurateConnected) {
+      Swal.fire({
+        title: "Accurate Sudah Terhubung",
+        text: "Ingin memperbarui atau menghubungkan ulang akun Accurate?",
+        icon: "question",
+        showCancelButton: true,
+        confirmButtonText: "Hubungkan Ulang",
+        cancelButtonText: "Batal",
+        confirmButtonColor: "#ffcc00",
+      }).then((res) => {
+        if (res.isConfirmed) mulaiOtorisasi();
+      });
+    } else {
+      mulaiOtorisasi();
+    }
   };
 
   // ================= FUNGSI LOGIN & FORM =================
@@ -50,8 +124,14 @@ export default function Home() {
     setIsLoading(false);
     if (error || !data) return Swal.fire({ icon: "error", title: "Gagal", text: "User/Password salah!" });
     setUserAktif(data.username);
+    sessionStorage.setItem("tb_putra_user", data.username);
     setIsLoggedIn(true);
     Swal.fire({ icon: "success", title: "Berhasil", text: `Selamat datang, ${data.username}!`, timer: 1500, showConfirmButton: false });
+  };
+
+  const logoutAplikasi = () => {
+    sessionStorage.removeItem("tb_putra_user");
+    setIsLoggedIn(false);
   };
 
   const handleFormatRupiah = (val: string) => {
@@ -390,7 +470,28 @@ export default function Home() {
       {activeView === "form" && (
         <div id="form-page" style={{ display: "block", position: "relative" }}>
           {showDropdown && <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, zIndex: 9 }} onClick={() => setShowDropdown(false)} />}
-          <div className="top-bar"><span>User Aktif: <strong>{userAktif}</strong></span><button type="button" className="btn-logout" onClick={() => setIsLoggedIn(false)}>Logout</button></div>
+          <div className="top-bar" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
+            <span>User Aktif: <strong>{userAktif}</strong></span>
+            <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
+              <button
+                type="button"
+                onClick={hubungkanAccurate}
+                style={{
+                  padding: "6px 14px",
+                  borderRadius: "6px",
+                  fontSize: "0.85rem",
+                  fontWeight: 600,
+                  cursor: "pointer",
+                  border: accurateConnected ? "1px solid #16a34a" : "1px solid #ffcc00",
+                  backgroundColor: accurateConnected ? "#dcfce7" : "#1a1a1a",
+                  color: accurateConnected ? "#15803d" : "#ffcc00",
+                }}
+              >
+                {accurateConnected ? "✓ Accurate Terhubung" : "Hubungkan Accurate"}
+              </button>
+              <button type="button" className="btn-logout" onClick={logoutAplikasi}>Logout</button>
+            </div>
+          </div>
           <div className="form-header"><h2>Form Inputan Transaksi</h2></div>
           <form onSubmit={(e) => e.preventDefault()}>
             <div className="form-row date-container">
@@ -441,7 +542,6 @@ export default function Home() {
 
             {/* --- BARIS 3: Tombol Multi Nominal di Kanan --- */}
             <div className="form-row" style={{ alignItems: "center", marginBottom: "15px" }}>
-              {/* Spacer kiri transparan agar tombol di kanan sejajar rata dengan kolom Nominal */}
               <div className="form-group" style={{ marginRight: "25px", visibility: "hidden" }}>
                 <label style={{ width: "140px", flex: "0 0 140px" }}></label>
                 <div className="form-control" style={{ width: "100%" }}></div>
