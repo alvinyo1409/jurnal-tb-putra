@@ -273,9 +273,16 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: pesanError, detail: saveJson }, { status: 400 })
     }
 
+    const nomorBuktiAccurate = 
+      saveJson.d?.number || 
+      saveJson.r?.number || 
+      saveJson.number || 
+      saveJson.d?.no || 
+      null
+
     return NextResponse.json({
       success: true,
-      number: saveJson.r?.number || null,
+      number: nomorBuktiAccurate,
     })
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Terjadi kesalahan internal server.'
