@@ -56,6 +56,7 @@ export default function Home() {
   const [reportType, setReportType] = useState("");
   const [reportPeriod, setReportPeriod] = useState("");
   const [reportData, setReportData] = useState<any[]>([]);
+  const [hutangGajiRows, setHutangGajiRows] = useState<any[]>([]);
 
   // ================= STATE FITUR GAJI & UPAH =================
   const [showGajiModal, setShowGajiModal] = useState(false);
@@ -69,6 +70,7 @@ export default function Home() {
   const [gajiPotonganMap, setGajiPotonganMap] = useState<
     Record<string, { uangMakan: number; kasbon: number }>
   >({});
+  const [gajiSudahAdaBukti, setGajiSudahAdaBukti] = useState<string | null>(null);
 
   const isMultiPegawai = pegawaiTerpilih.length > 1;
 
@@ -95,7 +97,7 @@ export default function Home() {
       Swal.fire({
         icon: "success",
         title: "Accurate Terhubung!",
-        text: "Koneksi & izin modul Pembayaran Accurate Online siap digunakan.",
+        text: "Koneksi & izin modul Pembayaran serta Jurnal Umum siap digunakan.",
         confirmButtonColor: "#ffcc00",
       });
       window.history.replaceState({}, "", window.location.pathname);
@@ -156,7 +158,8 @@ export default function Home() {
     const mulaiOtorisasi = () => {
       sessionStorage.setItem("tb_putra_user", userAktif);
       sessionStorage.setItem("tb_putra_role", userRole);
-      const scope = "other_payment_save other_payment_view glaccount_view";
+      const scope =
+        "other_payment_save other_payment_view glaccount_view journal_voucher_save";
       const authUrl = `https://account.accurate.id/oauth/authorize?client_id=${clientId}&response_type=code&redirect_uri=${encodeURIComponent(
         redirectUri
       )}&scope=${encodeURIComponent(scope)}`;
@@ -166,7 +169,7 @@ export default function Home() {
     if (accurateConnected) {
       Swal.fire({
         title: "Accurate Sudah Terhubung",
-        text: "Ingin memperbarui izin scope atau menghubungkan ulang akun Accurate?",
+        text: "Ingin memperbarui izin scope (termasuk Jurnal Umum Gaji) atau menghubungkan ulang akun Accurate?",
         icon: "question",
         showCancelButton: true,
         confirmButtonText: "Hubungkan Ulang",
@@ -180,7 +183,7 @@ export default function Home() {
     }
   };
 
-  // ================= FUNGSI KIRIM KE ACCURATE =================
+  // ================= FUNGSI KIRIM PEMBAYARAN KE ACCURATE =================
   const kirimKeAccurate = async (
     items: { nominal: number; keterangan?: string }[],
     keteranganUtama: string
@@ -207,7 +210,11 @@ export default function Home() {
   // ================= FUNGSI LOGIN & FORM =================
   const loginAplikasi = async () => {
     if (!username || !password)
-      return Swal.fire({ icon: "warning", title: "Perhatian", text: "Mohon isi Nama User dan Password!" });
+      return Swal.fire({
+        icon: "warning",
+        title: "Perhatian",
+        text: "Mohon isi Nama User dan Password!",
+      });
     setIsLoading(true);
     const { data, error } = await supabase
       .from("users")
@@ -326,7 +333,11 @@ export default function Home() {
     }
 
     if (!tanggal || pegawaiTerpilih.length === 0 || !tipe || !nominal || !sumberDana) {
-      return Swal.fire({ icon: "warning", title: "Data Belum Lengkap", text: "Mohon isi semua kolom!" });
+      return Swal.fire({
+        icon: "warning",
+        title: "Data Belum Lengkap",
+        text: "Mohon isi semua kolom!",
+      });
     }
 
     Swal.fire({
@@ -473,10 +484,12 @@ export default function Home() {
         });
 
         try {
-          const accurateItems = result.value.map((row: { nominal: number; keterangan: string }) => ({
-            nominal: row.nominal,
-            keterangan: row.keterangan,
-          }));
+          const accurateItems = result.value.map(
+            (row: { nominal: number; keterangan: string }) => ({
+              nominal: row.nominal,
+              keterangan: row.keterangan,
+            })
+          );
 
           const keteranganHeaderGabungan = `Pengambilan ${tipe.toLowerCase()} a.n ${pegawaiTerpilih.join(", ")}`;
 
@@ -552,36 +565,44 @@ export default function Home() {
     const labelBulanTahun = `${NAMA_BULAN[month - 1]} ${year}`;
 
     Swal.fire({
-      title: "Menarik Data Uang Makan & Kasbon...",
+      title: "Menarik Data Gaji, Uang Makan & Kasbon...",
       allowOutsideClick: false,
       didOpen: () => Swal.showLoading(),
     });
 
-    const { data, error } = await supabase
-      .from("transaksi")
-      .select("nama, tipe, nominal")
-      .gte("tanggal", tglDari)
-      .lte("tanggal", tglKe)
-      .in("nama", gajiPegawaiModal)
-      .in("tipe", ["Uang Makan", "Kasbon"]);
+    const [resTransaksi, resGapok] = await Promise.all([
+      supabase
+        .from("transaksi")
+        .select("nama, tipe, nominal")
+        .gte("tanggal", tglDari)
+        .lte("tanggal", tglKe)
+        .in("nama", gajiPegawaiModal)
+        .in("tipe", ["Uang Makan", "Kasbon"]),
+      supabase
+        .from("gaji_bulanan")
+        .select("nama, gapok, no_bukti")
+        .eq("periode", gajiPeriode)
+        .in("nama", gajiPegawaiModal),
+    ]);
 
     Swal.close();
 
-    if (error) {
-      return Swal.fire("Gagal Mengambil Data", error.message, "error");
+    if (resTransaksi.error) {
+      return Swal.fire("Gagal Mengambil Transaksi", resTransaksi.error.message, "error");
     }
 
     const listPegawaiUrut = daftarPegawai.filter((p) => gajiPegawaiModal.includes(p));
 
     const initPotongan: Record<string, { uangMakan: number; kasbon: number }> = {};
     const initGapok: Record<string, string> = {};
+    let buktiTersimpan: string | null = null;
 
     listPegawaiUrut.forEach((nama) => {
       initPotongan[nama] = { uangMakan: 0, kasbon: 0 };
       initGapok[nama] = "";
     });
 
-    (data || []).forEach((item: any) => {
+    (resTransaksi.data || []).forEach((item: any) => {
       if (initPotongan[item.nama]) {
         if (item.tipe === "Uang Makan") {
           initPotongan[item.nama].uangMakan += Number(item.nominal) || 0;
@@ -591,9 +612,20 @@ export default function Home() {
       }
     });
 
+    // Jika sudah pernah simpan Gapok pada periode tersebut, otomatis tampilkan kembali
+    (resGapok.data || []).forEach((g: any) => {
+      if (g.nama && Number(g.gapok) > 0) {
+        initGapok[g.nama] = Number(g.gapok).toLocaleString("id-ID");
+      }
+      if (g.no_bukti && !buktiTersimpan) {
+        buktiTersimpan = g.no_bukti;
+      }
+    });
+
     setGajiPegawaiAktif(listPegawaiUrut);
     setGajiPotonganMap(initPotongan);
     setGajiGapokMap(initGapok);
+    setGajiSudahAdaBukti(buktiTersimpan);
     setGajiLabelPeriode(labelBulanTahun);
     setShowGajiDropdown(false);
     setShowGajiModal(false);
@@ -605,6 +637,230 @@ export default function Home() {
       ...prev,
       [nama]: formatAngkaRibuan(val),
     }));
+  };
+
+  // ---------------- FUNGSI POST PERHITUNGAN GAJI ----------------
+  const postPerhitunganGaji = async () => {
+    if (!isAdmin) return;
+
+    let totalGapok = 0;
+    let totalPotongan = 0;
+
+    const barisDatabase = gajiPegawaiAktif.map((nama) => {
+      const gapokNum = Number((gajiGapokMap[nama] || "").replace(/[^0-9]/g, "")) || 0;
+      const umNum = gajiPotonganMap[nama]?.uangMakan || 0;
+      const ksbNum = gajiPotonganMap[nama]?.kasbon || 0;
+
+      totalGapok += gapokNum;
+      totalPotongan += umNum + ksbNum;
+
+      return {
+        periode: gajiPeriode,
+        nama,
+        gapok: gapokNum,
+        input_by: userAktif,
+      };
+    });
+
+    if (totalGapok <= 0) {
+      return Swal.fire({
+        icon: "warning",
+        title: "Gapok Belum Diisi",
+        text: "Mohon isi nominal Gapok Utuh minimal untuk 1 pegawai terlebih dahulu!",
+        confirmButtonColor: "#ffcc00",
+      });
+    }
+
+    const totalSisaGaji = totalGapok - totalPotongan;
+
+    // Konfirmasi sebelum memproses (terutama jika bulan ini sudah pernah memiliki No Bukti Jurnal Accurate)
+    const konfirmasi = await Swal.fire({
+      title: gajiSudahAdaBukti
+        ? `Periode Ini Sudah Pernah Dipost (${gajiSudahAdaBukti})`
+        : `Post Gaji Periode ${gajiLabelPeriode}?`,
+      html: gajiSudahAdaBukti
+        ? `<div style="text-align:left; font-size:0.92rem;">
+             Periode <b>${gajiLabelPeriode}</b> sebelumnya sudah tercatat dengan No Bukti Accurate <b>${gajiSudahAdaBukti}</b>.<br/><br/>
+             Pilih <b>"Update Web & Kirim Jurnal Baru"</b> jika ingin membuat Jurnal Umum baru di Accurate, atau pilih <b>"Update Web Saja"</b> agar tidak dobel di Accurate.
+           </div>`
+        : `<div style="text-align:left; font-size:0.95rem;">
+             • Total Gapok Utuh: <b>Rp ${totalGapok.toLocaleString("id-ID")}</b><br/>
+             • Total Potongan (UM + Kasbon): <b>Rp ${totalPotongan.toLocaleString("id-ID")}</b><br/>
+             • Total Sisa Hutang Gaji: <b>Rp ${totalSisaGaji.toLocaleString("id-ID")}</b><br/><br/>
+             Data akan disimpan ke <b>Database Gaji</b> & otomatis menjurnal ke <b>Accurate Online</b>.
+           </div>`,
+      icon: "question",
+      showCancelButton: true,
+      showDenyButton: Boolean(gajiSudahAdaBukti),
+      confirmButtonText: gajiSudahAdaBukti ? "Update Web & Kirim Jurnal Baru" : "Ya, POST Sekarang",
+      denyButtonText: "Update Web Saja",
+      cancelButtonText: "Batal",
+      confirmButtonColor: "#ffcc00",
+      denyButtonColor: "#1a1a1a",
+    });
+
+    if (konfirmasi.isDismissed) return;
+
+    const kirimJurnalBaru = konfirmasi.isConfirmed;
+
+    Swal.fire({
+      title: kirimJurnalBaru
+        ? "Menyimpan Gaji & Mengirim Jurnal Umum ke Accurate..."
+        : "Memperbarui Data Gapok di Database Web...",
+      allowOutsideClick: false,
+      didOpen: () => Swal.showLoading(),
+    });
+
+    try {
+      let nomorBuktiFinal = gajiSudahAdaBukti;
+
+      if (kirimJurnalBaru) {
+        const resAcc = await fetch("/api/accurate/journal-gaji", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            periode: gajiPeriode,
+            labelPeriode: gajiLabelPeriode,
+            totalGapok,
+            totalPotongan,
+            totalSisaGaji,
+          }),
+        });
+
+        const jsonAcc = await resAcc.json();
+        if (!resAcc.ok) {
+          throw new Error(jsonAcc.error || "Gagal membuat Jurnal Umum di Accurate Online.");
+        }
+        nomorBuktiFinal = jsonAcc.number || nomorBuktiFinal;
+      }
+
+      const payloadUpsert = barisDatabase.map((row) => ({
+        ...row,
+        no_bukti: nomorBuktiFinal || null,
+        updated_at: new Date().toISOString(),
+      }));
+
+      const { error: dbErr } = await supabase
+        .from("gaji_bulanan")
+        .upsert(payloadUpsert, { onConflict: "periode,nama" });
+
+      if (dbErr) {
+        Swal.fire(
+          "Perhatian",
+          `Gagal menyimpan ke tabel gaji_bulanan Supabase: ${dbErr.message}. Pastikan tabel SQL sudah dibuat.`,
+          "warning"
+        );
+      } else {
+        setGajiSudahAdaBukti(nomorBuktiFinal || null);
+        Swal.fire(
+          "Berhasil!",
+          kirimJurnalBaru
+            ? `Data Gaji ${gajiLabelPeriode} tersimpan di Web & Jurnal Umum Accurate${
+                nomorBuktiFinal ? ` (No Bukti: ${nomorBuktiFinal})` : ""
+              }!`
+            : `Data Gapok ${gajiLabelPeriode} berhasil diperbarui di Web!`,
+          "success"
+        );
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Terjadi kesalahan saat posting gaji.";
+      Swal.fire("Gagal Post Gaji", msg, "error");
+    }
+  };
+
+  // ---------------- FITUR SALDO AWAL HUTANG GAJI (PERIODE '0000-00') ----------------
+  const bukaModalSaldoAwal = async () => {
+    if (!isAdmin) return;
+
+    Swal.fire({ title: "Memuat Saldo Awal...", didOpen: () => Swal.showLoading() });
+
+    const { data, error } = await supabase
+      .from("gaji_bulanan")
+      .select("nama, gapok")
+      .eq("periode", "0000-00");
+
+    Swal.close();
+
+    if (error) {
+      return Swal.fire(
+        "Gagal Memuat",
+        `Pastikan tabel gaji_bulanan sudah dibuat di Supabase. (${error.message})`,
+        "error"
+      );
+    }
+
+    const mapSaldo: Record<string, number> = {};
+    (data || []).forEach((d: any) => {
+      mapSaldo[d.nama] = Number(d.gapok) || 0;
+    });
+
+    let htmlRows = `
+      <div style="max-height: 380px; overflow-y: auto; text-align: left;">
+        <p style="font-size:0.86rem; color:#555; margin-bottom:12px;">
+          Isi sisa tabungan/hutang gaji pegawai dari bulan-bulan <b>sebelum sistem ini digunakan</b> (kosongkan atau isi 0 jika mulai dari nol).
+        </p>
+        <table class="table-multi">
+          <thead><tr><th>Nama Pegawai</th><th width="200">Saldo Awal Hutang Gaji (Rp)</th></tr></thead>
+          <tbody>
+    `;
+
+    daftarPegawai.forEach((nama, idx) => {
+      const nilaiAwal = mapSaldo[nama] ? mapSaldo[nama].toLocaleString("id-ID") : "";
+      htmlRows += `
+        <tr>
+          <td style="font-weight:600;">${nama}</td>
+          <td>
+            <input type="text" id="sa_nom_${idx}" class="form-control swal-sa-nom" placeholder="0" value="${nilaiAwal}" style="text-align:right;">
+          </td>
+        </tr>
+      `;
+    });
+
+    htmlRows += `</tbody></table></div>`;
+
+    Swal.fire({
+      title: "Atur Saldo Awal Hutang Gaji",
+      html: htmlRows,
+      width: 600,
+      showCancelButton: true,
+      confirmButtonText: "Simpan Saldo Awal",
+      cancelButtonText: "Batal",
+      confirmButtonColor: "#ffcc00",
+      didOpen: () => {
+        document.querySelectorAll(".swal-sa-nom").forEach((inp) => {
+          inp.addEventListener("keyup", (e) => {
+            const target = e.target as HTMLInputElement;
+            const angka = target.value.replace(/[^0-9]/g, "");
+            target.value = angka ? Number(angka).toLocaleString("id-ID") : "";
+          });
+        });
+      },
+      preConfirm: () => {
+        return daftarPegawai.map((nama, idx) => {
+          const valStr = (document.getElementById(`sa_nom_${idx}`) as HTMLInputElement).value;
+          return {
+            periode: "0000-00",
+            nama,
+            gapok: Number(valStr.replace(/[^0-9]/g, "")) || 0,
+            input_by: userAktif,
+            updated_at: new Date().toISOString(),
+          };
+        });
+      },
+    }).then(async (res) => {
+      if (res.isConfirmed && Array.isArray(res.value)) {
+        Swal.fire({ title: "Menyimpan Saldo Awal...", didOpen: () => Swal.showLoading() });
+        const { error: saveErr } = await supabase
+          .from("gaji_bulanan")
+          .upsert(res.value, { onConflict: "periode,nama" });
+
+        if (saveErr) {
+          Swal.fire("Gagal", saveErr.message, "error");
+        } else {
+          Swal.fire("Berhasil!", "Saldo awal hutang gaji berhasil disimpan.", "success");
+        }
+      }
+    });
   };
 
   // ================= FUNGSI REPORT =================
@@ -664,6 +920,142 @@ export default function Home() {
     }
   };
 
+  // ---------------- LAPORAN HUTANG GAJI PER PEGAWAI ----------------
+  const bukaFilterHutangGaji = () => {
+    const now = new Date();
+    const defaultBulan = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+
+    Swal.fire({
+      title: "Laporan Hutang Gaji per Pegawai",
+      html: `
+        <div style="text-align: left; margin: 10px 0;">
+          <label style="font-weight:600; display:block; margin-bottom:6px;">Akumulasi Sampai Periode Bulan:</label>
+          <input type="month" id="swal_periode_hutang" class="swal2-input" value="${defaultBulan}" style="width:90%; margin:0;">
+          <p style="font-size:0.82rem; color:#666; margin-top:10px;">
+            Menghitung seluruh akumulasi Saldo Awal + Gapok dikurangi Uang Makan, Kasbon, dan Pengambilan Gaji hingga akhir bulan terpilih.
+          </p>
+        </div>
+      `,
+      showCancelButton: true,
+      confirmButtonText: "Tampilkan Laporan",
+      cancelButtonText: "Batal",
+      confirmButtonColor: "#ffcc00",
+      preConfirm: () => {
+        const per = (document.getElementById("swal_periode_hutang") as HTMLInputElement).value;
+        if (!per) {
+          Swal.showValidationMessage("Pilih periode bulan terlebih dahulu!");
+          return false;
+        }
+        return per;
+      },
+    }).then((res) => {
+      if (res.isConfirmed && res.value) {
+        tarikDataHutangGaji(res.value);
+      }
+    });
+  };
+
+  const tarikDataHutangGaji = async (sampaiPeriode: string) => {
+    const [yearStr, monthStr] = sampaiPeriode.split("-");
+    const lastDay = new Date(Number(yearStr), Number(monthStr), 0).getDate();
+    const batasTanggal = `${yearStr}-${monthStr}-${String(lastDay).padStart(2, "0")}`;
+    const labelPeriode = `s/d ${NAMA_BULAN[Number(monthStr) - 1]} ${yearStr}`;
+
+    Swal.fire({ title: "Menghitung Saldo Hutang Gaji...", didOpen: () => Swal.showLoading() });
+
+    const [resGaji, resTrans] = await Promise.all([
+      supabase.from("gaji_bulanan").select("periode, nama, gapok").lte("periode", sampaiPeriode),
+      supabase
+        .from("transaksi")
+        .select("nama, tipe, nominal")
+        .lte("tanggal", batasTanggal)
+        .in("tipe", ["Uang Makan", "Kasbon", "Upah"]),
+    ]);
+
+    Swal.close();
+
+    if (resGaji.error) {
+      return Swal.fire(
+        "Error Tabel Gaji",
+        `Pastikan tabel gaji_bulanan sudah dibuat di Supabase. (${resGaji.error.message})`,
+        "error"
+      );
+    }
+    if (resTrans.error) {
+      return Swal.fire("Error Tabel Transaksi", resTrans.error.message, "error");
+    }
+
+    // Gabungkan semua nama pegawai yang terdaftar maupun yang ada di histori
+    const semuaNamaSet = new Set<string>(daftarPegawai);
+    (resGaji.data || []).forEach((g: any) => semuaNamaSet.add(g.nama));
+    (resTrans.data || []).forEach((t: any) => semuaNamaSet.add(t.nama));
+
+    const semuaNama = Array.from(semuaNamaSet).sort();
+
+    const mapRekap: Record<
+      string,
+      {
+        nama: string;
+        saldoAwal: number;
+        totalGapok: number;
+        uangMakan: number;
+        kasbon: number;
+        ambilGaji: number;
+        sisaHutang: number;
+      }
+    > = {};
+
+    semuaNama.forEach((nama) => {
+      mapRekap[nama] = {
+        nama,
+        saldoAwal: 0,
+        totalGapok: 0,
+        uangMakan: 0,
+        kasbon: 0,
+        ambilGaji: 0,
+        sisaHutang: 0,
+      };
+    });
+
+    (resGaji.data || []).forEach((g: any) => {
+      if (!mapRekap[g.nama]) return;
+      if (g.periode === "0000-00") {
+        mapRekap[g.nama].saldoAwal += Number(g.gapok) || 0;
+      } else {
+        mapRekap[g.nama].totalGapok += Number(g.gapok) || 0;
+      }
+    });
+
+    (resTrans.data || []).forEach((t: any) => {
+      if (!mapRekap[t.nama]) return;
+      const nom = Number(t.nominal) || 0;
+      if (t.tipe === "Uang Makan") mapRekap[t.nama].uangMakan += nom;
+      else if (t.tipe === "Kasbon") mapRekap[t.nama].kasbon += nom;
+      else if (t.tipe === "Upah") mapRekap[t.nama].ambilGaji += nom;
+    });
+
+    const rowsHasil = semuaNama
+      .map((nama) => {
+        const r = mapRekap[nama];
+        r.sisaHutang =
+          r.saldoAwal + r.totalGapok - (r.uangMakan + r.kasbon + r.ambilGaji);
+        return r;
+      })
+      .filter(
+        (r) =>
+          r.saldoAwal !== 0 ||
+          r.totalGapok !== 0 ||
+          r.uangMakan !== 0 ||
+          r.kasbon !== 0 ||
+          r.ambilGaji !== 0
+      );
+
+    setHutangGajiRows(rowsHasil);
+    setReportType("HUTANG_GAJI");
+    setReportPeriod(labelPeriode);
+    setActiveView("reportResult");
+  };
+
   // ================= KOMPONEN RENDER PERHITUNGAN GAJI =================
   const renderHalamanGaji = () => {
     const grupPegawai: string[][] = [];
@@ -719,6 +1111,22 @@ export default function Home() {
           <div style={{ fontSize: "1rem", fontWeight: 600, color: "#555" }}>
             Per {gajiLabelPeriode}
           </div>
+          {gajiSudahAdaBukti && (
+            <div
+              style={{
+                display: "inline-block",
+                marginTop: "8px",
+                padding: "4px 12px",
+                borderRadius: "20px",
+                backgroundColor: "#dcfce7",
+                color: "#15803d",
+                fontSize: "0.82rem",
+                fontWeight: 700,
+              }}
+            >
+              ✓ Tersimpan (No Bukti Accurate: {gajiSudahAdaBukti})
+            </div>
+          )}
         </div>
 
         {/* Grid Pegawai (Maksimal 4 Pegawai per Baris) */}
@@ -1093,14 +1501,7 @@ export default function Home() {
               type="button"
               className="btn btn-kuning"
               style={{ width: "145px", height: "48px", borderRadius: "10px", fontWeight: 700 }}
-              onClick={() =>
-                Swal.fire({
-                  icon: "info",
-                  title: "Segera Hadir",
-                  text: "Fungsi POST Gaji akan diaktifkan pada tahap selanjutnya.",
-                  confirmButtonColor: "#ffcc00",
-                })
-              }
+              onClick={postPerhitunganGaji}
             >
               POST
             </button>
@@ -1291,6 +1692,133 @@ export default function Home() {
             </div>
           );
         })}
+      </>
+    );
+  };
+
+  const renderTabelHutangGaji = () => {
+    if (hutangGajiRows.length === 0) {
+      return (
+        <p style={{ textAlign: "center", padding: "30px", color: "#777" }}>
+          Belum ada data Gapok maupun Transaksi pada periode ini.
+        </p>
+      );
+    }
+
+    let totSaldoAwal = 0;
+    let totGapok = 0;
+    let totUM = 0;
+    let totKasbon = 0;
+    let totAmbilGaji = 0;
+    let totSisaHutang = 0;
+
+    hutangGajiRows.forEach((r) => {
+      totSaldoAwal += r.saldoAwal;
+      totGapok += r.totalGapok;
+      totUM += r.uangMakan;
+      totKasbon += r.kasbon;
+      totAmbilGaji += r.ambilGaji;
+      totSisaHutang += r.sisaHutang;
+    });
+
+    return (
+      <>
+        {isAdmin && (
+          <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: "14px" }}>
+            <button
+              type="button"
+              onClick={async () => {
+                await bukaModalSaldoAwal();
+              }}
+              style={{
+                padding: "8px 16px",
+                backgroundColor: "#1a1a1a",
+                color: "#ffcc00",
+                border: "1.5px solid #ffcc00",
+                borderRadius: "6px",
+                fontWeight: 700,
+                fontSize: "0.85rem",
+                cursor: "pointer",
+              }}
+            >
+              + Atur Saldo Awal Pegawai
+            </button>
+          </div>
+        )}
+
+        <div className="report-table-wrapper">
+          <table className="table-report">
+            <thead>
+              <tr>
+                <th style={{ textAlign: "left" }}>Nama Pegawai</th>
+                <th>Saldo Awal</th>
+                <th>Akumulasi Gapok</th>
+                <th>Pot. Uang Makan</th>
+                <th>Pot. Kasbon</th>
+                <th>Pengambilan Gaji</th>
+                <th>Sisa Hutang Gaji</th>
+              </tr>
+            </thead>
+            <tbody>
+              {hutangGajiRows.map((row) => {
+                const isMinus = row.sisaHutang < 0;
+                return (
+                  <tr key={row.nama}>
+                    <td style={{ fontWeight: 700, textAlign: "left" }}>{row.nama}</td>
+                    <td>{row.saldoAwal > 0 ? row.saldoAwal.toLocaleString("id-ID") : "-"}</td>
+                    <td>{row.totalGapok > 0 ? row.totalGapok.toLocaleString("id-ID") : "-"}</td>
+                    <td style={{ color: row.uangMakan > 0 ? "#dc2626" : "inherit" }}>
+                      {row.uangMakan > 0 ? `- ${row.uangMakan.toLocaleString("id-ID")}` : "-"}
+                    </td>
+                    <td style={{ color: row.kasbon > 0 ? "#dc2626" : "inherit" }}>
+                      {row.kasbon > 0 ? `- ${row.kasbon.toLocaleString("id-ID")}` : "-"}
+                    </td>
+                    <td style={{ color: row.ambilGaji > 0 ? "#dc2626" : "inherit" }}>
+                      {row.ambilGaji > 0 ? `- ${row.ambilGaji.toLocaleString("id-ID")}` : "-"}
+                    </td>
+                    <td
+                      style={{
+                        fontWeight: 800,
+                        backgroundColor: "#fce4d6",
+                        color: isMinus ? "#dc2626" : "#111",
+                      }}
+                    >
+                      {isMinus
+                        ? `- ${Math.abs(row.sisaHutang).toLocaleString("id-ID")}`
+                        : row.sisaHutang.toLocaleString("id-ID")}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+            <tfoot>
+              <tr>
+                <td style={{ fontWeight: "bold", textAlign: "left" }}>TOTAL KESELURUHAN</td>
+                <td>{totSaldoAwal > 0 ? totSaldoAwal.toLocaleString("id-ID") : "-"}</td>
+                <td>{totGapok > 0 ? totGapok.toLocaleString("id-ID") : "-"}</td>
+                <td style={{ color: "#dc2626" }}>
+                  {totUM > 0 ? `- ${totUM.toLocaleString("id-ID")}` : "-"}
+                </td>
+                <td style={{ color: "#dc2626" }}>
+                  {totKasbon > 0 ? `- ${totKasbon.toLocaleString("id-ID")}` : "-"}
+                </td>
+                <td style={{ color: "#dc2626" }}>
+                  {totAmbilGaji > 0 ? `- ${totAmbilGaji.toLocaleString("id-ID")}` : "-"}
+                </td>
+                <td
+                  style={{
+                    fontWeight: 800,
+                    color: totSisaHutang < 0 ? "#dc2626" : "#b38600",
+                  }}
+                >
+                  {totSisaHutang < 0
+                    ? `- ${Math.abs(totSisaHutang).toLocaleString("id-ID")}`
+                    : totSisaHutang.toLocaleString("id-ID")}
+                </td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
       </>
     );
   };
@@ -1500,27 +2028,58 @@ export default function Home() {
               </div>
             </div>
 
-            {/* Tombol Buat */}
-            <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px" }}>
+            {/* Tombol Saldo Awal & Buat */}
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                gap: "10px",
+                flexWrap: "wrap",
+              }}
+            >
               <button
                 type="button"
-                className="btn btn-outline"
-                style={{ width: "110px" }}
                 onClick={() => {
                   setShowGajiDropdown(false);
                   setShowGajiModal(false);
+                  bukaModalSaldoAwal();
+                }}
+                style={{
+                  background: "none",
+                  border: "none",
+                  color: "#b38600",
+                  fontWeight: 700,
+                  fontSize: "0.85rem",
+                  cursor: "pointer",
+                  textDecoration: "underline",
+                  padding: 0,
                 }}
               >
-                Batal
+                + Atur Saldo Awal
               </button>
-              <button
-                type="button"
-                className="btn btn-kuning"
-                style={{ width: "130px" }}
-                onClick={prosesBuatPerhitunganGaji}
-              >
-                Buat
-              </button>
+
+              <div style={{ display: "flex", gap: "10px" }}>
+                <button
+                  type="button"
+                  className="btn btn-outline"
+                  style={{ width: "105px" }}
+                  onClick={() => {
+                    setShowGajiDropdown(false);
+                    setShowGajiModal(false);
+                  }}
+                >
+                  Batal
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-kuning"
+                  style={{ width: "125px" }}
+                  onClick={prosesBuatPerhitunganGaji}
+                >
+                  Buat
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -1864,6 +2423,9 @@ export default function Home() {
             <button className="btn-report-menu" onClick={() => bukaFilterTanggal("DETAIL")}>
               Detail Transaksi
             </button>
+            <button className="btn-report-menu" onClick={bukaFilterHutangGaji}>
+              Hutang Gaji per Pegawai
+            </button>
             <button
               className="btn btn-outline"
               onClick={() => setActiveView("form")}
@@ -1902,10 +2464,20 @@ export default function Home() {
             </button>
           </div>
           <div className="form-header">
-            <h2>{reportType === "REKAP" ? "Rekap Transaksi" : "Rekap Detail Transaksi"}</h2>
+            <h2>
+              {reportType === "REKAP"
+                ? "Rekap Transaksi"
+                : reportType === "DETAIL"
+                ? "Rekap Detail Transaksi"
+                : "Laporan Hutang Gaji per Pegawai"}
+            </h2>
           </div>
 
-          {reportType === "REKAP" ? renderTabelRekap() : renderTabelDetail()}
+          {reportType === "REKAP"
+            ? renderTabelRekap()
+            : reportType === "DETAIL"
+            ? renderTabelDetail()
+            : renderTabelHutangGaji()}
         </div>
       )}
     </>
