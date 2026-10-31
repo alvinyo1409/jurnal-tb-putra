@@ -25,6 +25,10 @@ export default function Home() {
   const [isLoading, setIsLoading] = useState(false);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [userAktif, setUserAktif] = useState("");
+  const [userRole, setUserRole] = useState("");
+
+  // Cek apakah user aktif memiliki role administrator
+  const isAdmin = userRole.trim().toLowerCase() === "administrator";
 
   // ================= STATE ACCURATE =================
   const [accurateConnected, setAccurateConnected] = useState(false);
@@ -78,8 +82,10 @@ export default function Home() {
     setGajiPeriode(`${yyyy}-${mm}`);
 
     const savedUser = sessionStorage.getItem("tb_putra_user");
+    const savedRole = sessionStorage.getItem("tb_putra_role");
     if (savedUser) {
       setUserAktif(savedUser);
+      if (savedRole) setUserRole(savedRole);
       setIsLoggedIn(true);
     }
 
@@ -97,11 +103,26 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    if (isLoggedIn) {
+    if (isLoggedIn && userAktif) {
       ambilDataPegawai();
       cekStatusAccurate();
+      sinkronRoleUser(userAktif);
     }
-  }, [isLoggedIn]);
+  }, [isLoggedIn, userAktif]);
+
+  const sinkronRoleUser = async (uname: string) => {
+    const { data, error } = await supabase
+      .from("users")
+      .select("role")
+      .eq("username", uname.toLowerCase())
+      .maybeSingle();
+
+    if (!error && data) {
+      const roleTerbaru = data.role || "";
+      setUserRole(roleTerbaru);
+      sessionStorage.setItem("tb_putra_role", roleTerbaru);
+    }
+  };
 
   const ambilDataPegawai = async () => {
     const { data, error } = await supabase.from("pegawai").select("nama").order("nama");
@@ -134,6 +155,7 @@ export default function Home() {
 
     const mulaiOtorisasi = () => {
       sessionStorage.setItem("tb_putra_user", userAktif);
+      sessionStorage.setItem("tb_putra_role", userRole);
       const scope = "other_payment_save other_payment_view glaccount_view";
       const authUrl = `https://account.accurate.id/oauth/authorize?client_id=${clientId}&response_type=code&redirect_uri=${encodeURIComponent(
         redirectUri
@@ -196,8 +218,12 @@ export default function Home() {
     setIsLoading(false);
     if (error || !data)
       return Swal.fire({ icon: "error", title: "Gagal", text: "User/Password salah!" });
+
+    const roleDb = data.role || "";
     setUserAktif(data.username);
+    setUserRole(roleDb);
     sessionStorage.setItem("tb_putra_user", data.username);
+    sessionStorage.setItem("tb_putra_role", roleDb);
     setIsLoggedIn(true);
     Swal.fire({
       icon: "success",
@@ -210,6 +236,11 @@ export default function Home() {
 
   const logoutAplikasi = () => {
     sessionStorage.removeItem("tb_putra_user");
+    sessionStorage.removeItem("tb_putra_role");
+    setUserAktif("");
+    setUserRole("");
+    setShowGajiModal(false);
+    setActiveView("form");
     setIsLoggedIn(false);
   };
 
@@ -491,6 +522,8 @@ export default function Home() {
   };
 
   const prosesBuatPerhitunganGaji = async () => {
+    if (!isAdmin) return;
+
     if (!gajiPeriode) {
       return Swal.fire({
         icon: "warning",
@@ -538,7 +571,6 @@ export default function Home() {
       return Swal.fire("Gagal Mengambil Data", error.message, "error");
     }
 
-    // Urutkan pegawai sesuai urutan daftar pegawai yang dipilih
     const listPegawaiUrut = daftarPegawai.filter((p) => gajiPegawaiModal.includes(p));
 
     const initPotongan: Record<string, { uangMakan: number; kasbon: number }> = {};
@@ -634,7 +666,6 @@ export default function Home() {
 
   // ================= KOMPONEN RENDER PERHITUNGAN GAJI =================
   const renderHalamanGaji = () => {
-    // Bagi pegawai menjadi grup maksimal 4 kolom per baris
     const grupPegawai: string[][] = [];
     for (let i = 0; i < gajiPegawaiAktif.length; i += 4) {
       grupPegawai.push(gajiPegawaiAktif.slice(i, i + 4));
@@ -1316,8 +1347,8 @@ export default function Home() {
 
   return (
     <>
-      {/* ---------------- POP-UP MODAL: INPUT GAJI / UPAH ---------------- */}
-      {showGajiModal && (
+      {/* ---------------- POP-UP MODAL: INPUT GAJI / UPAH (KHUSUS ADMIN) ---------------- */}
+      {isAdmin && showGajiModal && (
         <div
           style={{
             position: "fixed",
@@ -1711,7 +1742,7 @@ export default function Home() {
               </div>
             </div>
 
-            {/* --- BARIS TOMBOL AKSI + TOMBOL BULAT KALKULATOR GAJI --- */}
+            {/* --- BARIS TOMBOL AKSI + TOMBOL BULAT KALKULATOR GAJI (KHUSUS ADMIN) --- */}
             <div
               className="action-buttons"
               style={{
@@ -1752,60 +1783,62 @@ export default function Home() {
                 Report
               </button>
 
-              {/* Tombol Bulat Kalkulator Gaji di Sebelah Kanan Report */}
-              <button
-                type="button"
-                title="Perhitungan Gaji & Upah"
-                onClick={() => setShowGajiModal(true)}
-                style={{
-                  position: "absolute",
-                  right: "0",
-                  width: "46px",
-                  height: "46px",
-                  borderRadius: "50%",
-                  backgroundColor: "#1a1a1a",
-                  border: "2px solid #ffcc00",
-                  color: "#ffcc00",
-                  display: "flex",
-                  justifyContent: "center",
-                  alignItems: "center",
-                  cursor: "pointer",
-                  boxShadow: "0 4px 10px rgba(0,0,0,0.18)",
-                  transition: "transform 0.15s ease",
-                }}
-                onMouseOver={(e) => (e.currentTarget.style.transform = "scale(1.07)")}
-                onMouseOut={(e) => (e.currentTarget.style.transform = "scale(1)")}
-              >
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  width="22"
-                  height="22"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
+              {/* Tombol Bulat Kalkulator Gaji — Hanya muncul jika role = administrator */}
+              {isAdmin && (
+                <button
+                  type="button"
+                  title="Perhitungan Gaji & Upah"
+                  onClick={() => setShowGajiModal(true)}
+                  style={{
+                    position: "absolute",
+                    right: "0",
+                    width: "46px",
+                    height: "46px",
+                    borderRadius: "50%",
+                    backgroundColor: "#1a1a1a",
+                    border: "2px solid #ffcc00",
+                    color: "#ffcc00",
+                    display: "flex",
+                    justifyContent: "center",
+                    alignItems: "center",
+                    cursor: "pointer",
+                    boxShadow: "0 4px 10px rgba(0,0,0,0.18)",
+                    transition: "transform 0.15s ease",
+                  }}
+                  onMouseOver={(e) => (e.currentTarget.style.transform = "scale(1.07)")}
+                  onMouseOut={(e) => (e.currentTarget.style.transform = "scale(1)")}
                 >
-                  <rect x="4" y="2" width="16" height="20" rx="2" />
-                  <line x1="8" y1="6" x2="16" y2="6" />
-                  <line x1="16" y1="14" x2="16" y2="18" />
-                  <path d="M16 10h.01" />
-                  <path d="M12 10h.01" />
-                  <path d="M8 10h.01" />
-                  <path d="M12 14h.01" />
-                  <path d="M8 14h.01" />
-                  <path d="M12 18h.01" />
-                  <path d="M8 18h.01" />
-                </svg>
-              </button>
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    width="22"
+                    height="22"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <rect x="4" y="2" width="16" height="20" rx="2" />
+                    <line x1="8" y1="6" x2="16" y2="6" />
+                    <line x1="16" y1="14" x2="16" y2="18" />
+                    <path d="M16 10h.01" />
+                    <path d="M12 10h.01" />
+                    <path d="M8 10h.01" />
+                    <path d="M12 14h.01" />
+                    <path d="M8 14h.01" />
+                    <path d="M12 18h.01" />
+                    <path d="M8 18h.01" />
+                  </svg>
+                </button>
+              )}
             </div>
           </form>
         </div>
       )}
 
-      {/* ---------------- VIEW: PERHITUNGAN GAJI & UPAH ---------------- */}
-      {activeView === "gajiPage" && renderHalamanGaji()}
+      {/* ---------------- VIEW: PERHITUNGAN GAJI & UPAH (KHUSUS ADMIN) ---------------- */}
+      {activeView === "gajiPage" && isAdmin && renderHalamanGaji()}
 
       {/* ---------------- VIEW: MENU REPORT ---------------- */}
       {activeView === "reportMenu" && (
