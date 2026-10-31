@@ -23,7 +23,7 @@ interface AccurateAccount {
 const TIPE_KE_AKUN: Record<string, string> = {
   Kasbon: 'Piutang Karyawan',
   Upah: 'Hutang Gaji',
-  'Uang Makan': 'Beban Gaji, Upah & Honorer, Lembur',
+  'Uang Makan': 'Piutang Karyawan',
 }
 
 function normalisasiNama(teks: string): string {
